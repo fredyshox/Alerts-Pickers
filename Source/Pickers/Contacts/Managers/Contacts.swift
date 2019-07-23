@@ -77,7 +77,7 @@ public struct Contacts {
     /// Checks if contact should be added to fetch results
     /// - Parameters:
     ///    - contact: evaluated contact
-    private func isInluded(contact: CNContact) -> Bool {
+    private func isIncluded(contact: CNContact) -> Bool {
         guard !configuration.excludeIds.contains(contact.identifier) else {
             return false
         }
@@ -103,7 +103,7 @@ public struct Contacts {
             do {
                 try self.contactStore.enumerateContacts(with: fetchRequest, usingBlock: {
                     contact, _ in
-                    guard self.isInluded(contact: contact) else { return }
+                    guard self.isIncluded(contact: contact) else { return }
                     
                     contacts.append(contact)
                 })
@@ -133,7 +133,7 @@ public struct Contacts {
             fetchRequest.sortOrder = .givenName
             do {
                 try self.contactStore.enumerateContacts(with: fetchRequest, usingBlock: { (contact, _) -> Void in
-                    guard self.isInluded(contact: contact) else { return }
+                    guard self.isIncluded(contact: contact) else { return }
                     // Ordering contacts based on alphabets in firstname
                     var key: String = "#"
                     // If ordering has to be happening via family name change it here.
@@ -175,7 +175,7 @@ public struct Contacts {
             do {
                 contacts = try self.contactStore.unifiedContacts(matching: predicate, keysToFetch: self.defaultKeysToFetch)
                 let processed = contacts
-                    .filter(self.isInluded(contact:))
+                    .filter(self.isIncluded(contact:))
                     .sorted { $0.givenName < $1.givenName }
                 
                 DispatchQueue.main.async {
