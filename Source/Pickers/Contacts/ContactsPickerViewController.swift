@@ -162,7 +162,9 @@ final public class ContactsPickerViewController: UIViewController {
             
         case .authorized:
             /// Authorization granted by user for this app.
-            self.fetchContacts(completionHandler: completionHandler)
+            DispatchQueue.main.async {
+                self.fetchContacts(completionHandler: completionHandler)
+            }
         case .denied, .restricted:
             /// User has denied the current app to access the contacts.
             let productName = Bundle.main.dlgpicker_appName

@@ -123,36 +123,29 @@ public struct Contacts {
     /// - Parameter completionHandler: It will return Dictonary of Alphabets with Their Sorted Respective Contacts.
      @available(iOS 10.0, *)
      public func fetchContactsGroupedByAlphabets(completionHandler: @escaping (GroupedByAlphabetsFetchResults) -> ()) {
-        
-        DispatchQueue.global(qos: .userInitiated).async {
-            let fetchRequest: CNContactFetchRequest = CNContactFetchRequest(keysToFetch: self.defaultKeysToFetch)
-            var orderedContacts: [String: [CNContact]] = [String: [CNContact]]()
-            CNContact.localizedString(forKey: CNLabelPhoneNumberiPhone)
-            fetchRequest.mutableObjects = false
-            fetchRequest.unifyResults = true
-            fetchRequest.sortOrder = .givenName
-            do {
-                try self.contactStore.enumerateContacts(with: fetchRequest, usingBlock: { (contact, _) -> Void in
-                    guard self.isIncluded(contact: contact) else { return }
-                    // Ordering contacts based on alphabets in firstname
-                    var key: String = "#"
-                    // If ordering has to be happening via family name change it here.
-                    let firstLetter = contact.givenName.count > 1 ? contact.givenName[0..<1] : "?"
-                    if firstLetter.containsAlphabets {
-                        key = firstLetter.uppercased()
-                    }
-                    var contacts: [CNContact] = orderedContacts[key] ?? []
-                    contacts.append(contact)
-                    orderedContacts[key] = contacts
-                })
-                DispatchQueue.main.async {
-                    completionHandler(GroupedByAlphabetsFetchResults.success(response: orderedContacts))
+        let fetchRequest: CNContactFetchRequest = CNContactFetchRequest(keysToFetch: self.defaultKeysToFetch)
+        var orderedContacts: [String: [CNContact]] = [String: [CNContact]]()
+        CNContact.localizedString(forKey: CNLabelPhoneNumberiPhone)
+        fetchRequest.mutableObjects = false
+        fetchRequest.unifyResults = true
+        fetchRequest.sortOrder = .givenName
+        do {
+            try self.contactStore.enumerateContacts(with: fetchRequest, usingBlock: { (contact, _) -> Void in
+                guard self.isIncluded(contact: contact) else { return }
+                // Ordering contacts based on alphabets in firstname
+                var key: String = "#"
+                // If ordering has to be happening via family name change it here.
+                let firstLetter = contact.givenName.count > 1 ? contact.givenName[0..<1] : "?"
+                if firstLetter.containsAlphabets {
+                    key = firstLetter.uppercased()
                 }
-            } catch {
-                DispatchQueue.main.async {
-                    completionHandler(GroupedByAlphabetsFetchResults.error(error: error))
-                }
-            }
+                var contacts: [CNContact] = orderedContacts[key] ?? []
+                contacts.append(contact)
+                orderedContacts[key] = contacts
+            })
+            completionHandler(GroupedByAlphabetsFetchResults.success(response: orderedContacts))
+        } catch {
+            completionHandler(GroupedByAlphabetsFetchResults.error(error: error))
         }
      }
     
