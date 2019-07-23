@@ -8,7 +8,7 @@ extension UIAlertController {
     /// - Parameters:
     ///   - selection: action for selection of contact
     
-    public func addContactsPicker(localizer: TelegramPickerResourceProvider? = nil, selection: @escaping ContactsPickerViewController.Selection) {
+    public func addContactsPicker(localizer: TelegramPickerResourceProvider? = nil, configuration: Contacts.Configuration = .default, selection: @escaping ContactsPickerViewController.Selection) {
         let selection: ContactsPickerViewController.Selection = selection
         var contact: Contact?
         
@@ -17,7 +17,7 @@ extension UIAlertController {
         }
         addContact.isEnabled = false
         
-        let vc = ContactsPickerViewController { new in
+        let vc = ContactsPickerViewController(configuration: configuration) { new in
             addContact.isEnabled = new != nil
             contact = new
         }
@@ -44,7 +44,8 @@ final public class ContactsPickerViewController: UIViewController {
     
     //Contacts ordered in dicitonary alphabetically
     fileprivate var orderedContacts = [String: [CNContact]]()
-    fileprivate var sortedContactKeys = [String]()
+    fileprivate var sortedContactKeys: [String] = []
+    fileprivate let contactManager: Contacts
     fileprivate var filteredContacts: [CNContact] = []
     
     fileprivate var selectedContact: Contact?
@@ -81,8 +82,9 @@ final public class ContactsPickerViewController: UIViewController {
     
     // MARK: Initialize
     
-    required public init(selection: Selection?) {
+    required public init(configuration: Contacts.Configuration, selection: Selection?) {
         self.selection = selection
+        self.contactManager = Contacts(configuration: configuration)
         super.init(nibName: nil, bundle: nil)
     }
     
@@ -141,7 +143,7 @@ final public class ContactsPickerViewController: UIViewController {
                 self.sortedContactKeys.removeFirst()
                 self.sortedContactKeys.append("#")
             }
-            
+
             DispatchQueue.main.async {
                 self.tableView.reloadData()
             }
@@ -154,16 +156,13 @@ final public class ContactsPickerViewController: UIViewController {
             
         case .notDetermined:
             /// This case means the user is prompted for the first time for allowing contacts
-            Contacts.requestAccess { [unowned self] bool, error in
+            contactManager.requestAccess { [unowned self] bool, error in
                 self.checkStatus(completionHandler: completionHandler)
             }
             
         case .authorized:
             /// Authorization granted by user for this app.
-            DispatchQueue.main.async {
-                self.fetchContacts(completionHandler: completionHandler)
-            }
-
+            self.fetchContacts(completionHandler: completionHandler)
         case .denied, .restricted:
             /// User has denied the current app to access the contacts.
             let productName = Bundle.main.dlgpicker_appName
@@ -183,7 +182,7 @@ final public class ContactsPickerViewController: UIViewController {
     }
     
     func fetchContacts(completionHandler: @escaping ([String: [CNContact]]) -> ()) {
-        Contacts.fetchContactsGroupedByAlphabets { [unowned self] result in
+        contactManager.fetchContactsGroupedByAlphabets { [unowned self] result in
             switch result {
                 
             case .success(let orderedContacts):
@@ -239,7 +238,7 @@ extension ContactsPickerViewController: UISearchResultsUpdating {
     
     public func updateSearchResults(for searchController: UISearchController) {
         if let searchText = searchController.searchBar.text, searchController.isActive {
-            Contacts.searchContact(searchString: searchText) { [unowned self] result in
+            contactManager.searchContact(searchString: searchText) { [unowned self] result in
                 switch result {
                 case .success(let contacts):
                     self.filteredContacts = contacts

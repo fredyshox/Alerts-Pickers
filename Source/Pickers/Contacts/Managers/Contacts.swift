@@ -34,16 +34,33 @@ public struct Contacts {
         case error(error: Error)
     }
     
-    public static let defaultKeysToFetch: [CNKeyDescriptor] = [
+    // Fetch configuration
+    public struct Configuration {
+        public let excludeIds: Set<String>
+        public let filter: ((CNContact) -> Bool)?
+        
+        public static var `default`: Configuration {
+            return Configuration(excludeIds: Set(), filter: nil)
+        }
+    }
+    
+    private let configuration: Configuration
+    private let contactStore: CNContactStore
+    private let defaultKeysToFetch: [CNKeyDescriptor] = [
         CNContactVCardSerialization.descriptorForRequiredKeys(),
         CNContactThumbnailImageDataKey as CNKeyDescriptor
-        ]
+    ]
+    
+    init(configuration: Configuration = .default) {
+        self.configuration = configuration
+        self.contactStore = CNContactStore()
+    }
     
     /// Requests access to the user's contacts
     ///
     /// - Parameter requestGranted: Result as Bool
-    public static func requestAccess(_ requestGranted: @escaping (Bool, Error?) -> ()) {
-        CNContactStore().requestAccess(for: .contacts) { grandted, error in
+    public func requestAccess(_ requestGranted: @escaping (Bool, Error?) -> ()) {
+        contactStore.requestAccess(for: .contacts) { grandted, error in
             requestGranted(grandted, error)
         }
     }
@@ -51,28 +68,22 @@ public struct Contacts {
     /// Returns the current authorization status to access the contact data.
     ///
     /// - Parameter requestStatus: Result as CNAuthorizationStatus
-    public static func authorizationStatus(_ requestStatus: @escaping (CNAuthorizationStatus) -> ()) {
+    public func authorizationStatus(_ requestStatus: @escaping (CNAuthorizationStatus) -> ()) {
         requestStatus(CNContactStore.authorizationStatus(for: .contacts))
     }
     
     // MARK: - Fetch Contacts -
     
-    /// Fetching Contacts from phone
-    ///
-    /// - Parameter completionHandler: Returns Either [CNContact] or Error.
-    public static func fetchContacts(completionHandler: @escaping (_ result: FetchResults) -> ()) {
-        
-        let contactStore: CNContactStore = CNContactStore()
-        var contacts: [CNContact] = [CNContact]()
-        let fetchRequest: CNContactFetchRequest = CNContactFetchRequest(keysToFetch: defaultKeysToFetch)
-        do {
-            try contactStore.enumerateContacts(with: fetchRequest, usingBlock: {
-                contact, _ in
-                contacts.append(contact) })
-            completionHandler(FetchResults.success(response: contacts))
-        } catch {
-            completionHandler(FetchResults.error(error: error))
+    /// Checks if contact should be added to fetch results
+    /// - Parameters:
+    ///    - contact: evaluated contact
+    private func isInluded(contact: CNContact) -> Bool {
+        guard !configuration.excludeIds.contains(contact.identifier) else {
+            return false
         }
+        
+        let filtered = configuration.filter?(contact)
+        return filtered ?? true
     }
     
     /// Fetching Contacts from phone with specific sort order.
@@ -81,20 +92,29 @@ public struct Contacts {
     ///   - sortOrder: To return contacts in a specific sort order.
     ///   - completionHandler: Result Handler
     @available(iOS 10.0, *)
-    public static func fetchContacts(ContactsSortorder sortOrder: CNContactSortOrder, completionHandler: @escaping (_ result: FetchResults) -> ()) {
+    public func fetchContacts(ContactsSortorder sortOrder: CNContactSortOrder = .none, completionHandler: @escaping (_ result: FetchResults) -> ()) {
         
-        let contactStore: CNContactStore = CNContactStore()
-        var contacts: [CNContact] = [CNContact]()
-        let fetchRequest: CNContactFetchRequest = CNContactFetchRequest(keysToFetch: defaultKeysToFetch)
-        fetchRequest.unifyResults = true
-        fetchRequest.sortOrder = sortOrder
-        do {
-            try contactStore.enumerateContacts(with: fetchRequest, usingBlock: {
-                contact, _ in
-                contacts.append(contact) })
-            completionHandler(FetchResults.success(response: contacts))
-        } catch {
-            completionHandler(FetchResults.error(error: error))
+        DispatchQueue.global(qos: .userInitiated).async {
+            var contacts: [CNContact] = [CNContact]()
+            let fetchRequest: CNContactFetchRequest = CNContactFetchRequest(keysToFetch: self.defaultKeysToFetch)
+            fetchRequest.mutableObjects = false
+            fetchRequest.unifyResults = true
+            fetchRequest.sortOrder = sortOrder
+            do {
+                try self.contactStore.enumerateContacts(with: fetchRequest, usingBlock: {
+                    contact, _ in
+                    guard self.isInluded(contact: contact) else { return }
+                    
+                    contacts.append(contact)
+                })
+                DispatchQueue.main.async {
+                    completionHandler(FetchResults.success(response: contacts))
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    completionHandler(FetchResults.error(error: error))
+                }
+            }
         }
     }
     
@@ -102,109 +122,73 @@ public struct Contacts {
     ///
     /// - Parameter completionHandler: It will return Dictonary of Alphabets with Their Sorted Respective Contacts.
      @available(iOS 10.0, *)
-     public static func fetchContactsGroupedByAlphabets(completionHandler: @escaping (GroupedByAlphabetsFetchResults) -> ()) {
+     public func fetchContactsGroupedByAlphabets(completionHandler: @escaping (GroupedByAlphabetsFetchResults) -> ()) {
         
-        let contactStore: CNContactStore = CNContactStore()
-        let fetchRequest: CNContactFetchRequest = CNContactFetchRequest(keysToFetch: defaultKeysToFetch)
-        var orderedContacts: [String: [CNContact]] = [String: [CNContact]]()
-        CNContact.localizedString(forKey: CNLabelPhoneNumberiPhone)
-        fetchRequest.mutableObjects = false
-        fetchRequest.unifyResults = true
-        fetchRequest.sortOrder = .givenName
-        do {
-            try contactStore.enumerateContacts(with: fetchRequest, usingBlock: { (contact, _) -> Void in
-                // Ordering contacts based on alphabets in firstname
-                var key: String = "#"
-                // If ordering has to be happening via family name change it here.
-                let firstLetter = contact.givenName.count > 1 ? contact.givenName[0..<1] : "?"
-                if firstLetter.containsAlphabets {
-                    key = firstLetter.uppercased()
-                }
-                var contacts = [CNContact]()
-                if let segregatedContact = orderedContacts[key] {
-                    contacts = segregatedContact
-                }
-                contacts.append(contact)
-                orderedContacts[key] = contacts
-            })
-        } catch {
-            completionHandler(GroupedByAlphabetsFetchResults.error(error: error))
-        }
-        completionHandler(GroupedByAlphabetsFetchResults.success(response: orderedContacts))
-     }
-    
-    /// Fetching Contacts from phone
-    /// - parameter completionHandler: Returns Either [CNContact] or Error.
-    public static func fetchContactsOnBackgroundThread(completionHandler: @escaping (_ result: FetchResults) -> ()) {
-        
-        DispatchQueue.global(qos: .userInitiated).async(execute: { () -> () in
-            let fetchRequest: CNContactFetchRequest = CNContactFetchRequest(keysToFetch: defaultKeysToFetch)
-            var contacts = [CNContact]()
+        DispatchQueue.global(qos: .userInitiated).async {
+            let fetchRequest: CNContactFetchRequest = CNContactFetchRequest(keysToFetch: self.defaultKeysToFetch)
+            var orderedContacts: [String: [CNContact]] = [String: [CNContact]]()
             CNContact.localizedString(forKey: CNLabelPhoneNumberiPhone)
-            if #available(iOS 10.0, *) {
-                fetchRequest.mutableObjects = false
-            } else {
-                // Fallback on earlier versions
-            }
+            fetchRequest.mutableObjects = false
             fetchRequest.unifyResults = true
-            fetchRequest.sortOrder = .userDefault
+            fetchRequest.sortOrder = .givenName
             do {
-                try CNContactStore().enumerateContacts(with: fetchRequest) { (contact, _) -> () in
+                try self.contactStore.enumerateContacts(with: fetchRequest, usingBlock: { (contact, _) -> Void in
+                    guard self.isInluded(contact: contact) else { return }
+                    // Ordering contacts based on alphabets in firstname
+                    var key: String = "#"
+                    // If ordering has to be happening via family name change it here.
+                    let firstLetter = contact.givenName.count > 1 ? contact.givenName[0..<1] : "?"
+                    if firstLetter.containsAlphabets {
+                        key = firstLetter.uppercased()
+                    }
+                    var contacts: [CNContact] = orderedContacts[key] ?? []
                     contacts.append(contact)
-                }
-                DispatchQueue.main.async(execute: { () -> () in
-                    completionHandler(FetchResults.success(response: contacts))
+                    orderedContacts[key] = contacts
                 })
-            } catch let error as NSError {
-                completionHandler(FetchResults.error(error: error))
+                DispatchQueue.main.async {
+                    completionHandler(GroupedByAlphabetsFetchResults.success(response: orderedContacts))
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    completionHandler(GroupedByAlphabetsFetchResults.error(error: error))
+                }
             }
-            
-        })
-        
-    }
+        }
+     }
     
     // MARK: - Search Contacts -
     
     /// Search Contact from phone
     /// - parameter string: Search String.
     /// - parameter completionHandler: Returns Either [CNContact] or Error.
-    public static func searchContact(searchString string: String, completionHandler: @escaping (_ result: FetchResults) -> ()) {
+    public func searchContact(searchString string: String, completionHandler: @escaping (_ result: FetchResults) -> ()) {
         
-        let contactStore: CNContactStore = CNContactStore()
-        var contacts: [CNContact] = [CNContact]()
-        let predicate: NSPredicate
-
-        if string.endIndex.utf16Offset(in: string) > 0 {
-            predicate = CNContact.predicateForContacts(matchingName: string)
-        } else {
-            predicate = CNContact.predicateForContactsInContainer(withIdentifier: CNContactStore().defaultContainerIdentifier())
-        }
-        
-        do {
-            contacts = try contactStore.unifiedContacts(matching: predicate, keysToFetch: defaultKeysToFetch)
-            contacts = contacts.sorted { $0.givenName < $1.givenName }
-            completionHandler(FetchResults.success(response: contacts))
-        } catch {
-            completionHandler(FetchResults.error(error: error))
+        DispatchQueue.global(qos: .userInitiated).async {
+            var contacts: [CNContact] = [CNContact]()
+            let predicate: NSPredicate
+            if string.endIndex.utf16Offset(in: string) > 0 {
+                predicate = CNContact.predicateForContacts(matchingName: string)
+            } else {
+                predicate = CNContact.predicateForContactsInContainer(withIdentifier: self.contactStore.defaultContainerIdentifier())
+            }
+            
+            do {
+                contacts = try self.contactStore.unifiedContacts(matching: predicate, keysToFetch: self.defaultKeysToFetch)
+                let processed = contacts
+                    .filter(self.isInluded(contact:))
+                    .sorted { $0.givenName < $1.givenName }
+                
+                DispatchQueue.main.async {
+                    completionHandler(FetchResults.success(response: processed))
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    completionHandler(FetchResults.error(error: error))
+                }
+            }
         }
     }
     
-    // Get CNContact From Identifier
-    /// Get CNContact From Identifier
-    /// - parameter identifier: A value that uniquely identifies a contact on the device.
-    /// - parameter completionHandler: Returns Either CNContact or Error.
-    public static func getContactFromID(Identifires identifiers: [String], completionHandler: @escaping (_ result: FetchResults) -> ()) {
-        
-        let contactStore: CNContactStore = CNContactStore()
-        var contacts: [CNContact] = [CNContact]()
-        let predicate: NSPredicate = CNContact.predicateForContacts(withIdentifiers: identifiers)
-        do {
-            contacts = try contactStore.unifiedContacts(matching: predicate, keysToFetch: defaultKeysToFetch)
-            completionHandler(FetchResults.success(response: contacts))
-        } catch {
-            completionHandler(FetchResults.error(error: error))
-        }
-    }
 }
 
 
