@@ -39,6 +39,11 @@ public struct Contacts {
         public let excludeIds: Set<String>
         public let filter: ((CNContact) -> Bool)?
         
+        public init(excludeIds: Set<String>, filter: ((CNContact) -> Bool)?) {
+            self.excludeIds = excludeIds
+            self.filter = filter
+        }
+        
         public static var `default`: Configuration {
             return Configuration(excludeIds: Set(), filter: nil)
         }
