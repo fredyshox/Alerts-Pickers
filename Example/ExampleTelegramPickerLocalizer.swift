@@ -58,8 +58,4 @@ public struct ExampleTelegramPickerLocalizer: TelegramPickerResourceProvider {
         return alert
     }
     
-    public func resourceProviderForLocationPicker() -> LocationPickerViewControllerResourceProvider? {
-        return nil
-    }
-    
 }
